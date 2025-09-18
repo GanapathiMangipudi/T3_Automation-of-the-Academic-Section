@@ -11,7 +11,7 @@ import AdminViewProfessorsPage from "./components/AdminViewProfessorsPage";
 import StudentDashboard from "./components/StudentDashboard";
 import ProfessorLogin from './components/ProfessorLogin';
 import ProfessorDashboard from './components/ProfessorDashboard'; 
-
+import AssignmentUI from "./components/AssignmentUI";
 
 // Base URLs
 // For /api/* routes
