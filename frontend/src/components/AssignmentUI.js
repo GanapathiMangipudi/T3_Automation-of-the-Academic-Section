@@ -104,7 +104,7 @@ export function AssignmentCompact({ onOpenFull = () => {} }) {
 }
 
 // --- Full page /assignments ------------------------------------------------
-export default function AssignmentsPage() {
+export default function AssignmentUI() {
   const [assignments, setAssignments] = useState([]);
   const [selected, setSelected] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -370,4 +370,5 @@ function CreateAssignmentForm({ onCancel, onSave, initial = null }) {
     </form>
   );
 }
+
 
