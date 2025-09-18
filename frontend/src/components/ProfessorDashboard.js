@@ -466,6 +466,15 @@ return (
                 </div>
               ))
             )}
+              {/* 🚀 Added button at bottom */}
+      <div className="mt-3 text-center">
+        <button
+          className="btn btn-primary"
+          onClick={() => (window.location.href = "/assignments")}
+        >
+          Go to Assignment Section
+        </button>
+      </div>
           </div>
         </div>
       </div>
@@ -552,12 +561,7 @@ return (
       </div>
     </div>
 
-    <div className="mt-3">
-      <details>
-        <summary>Raw debug</summary>
-        <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify({ raw, attendanceRows }, null, 2)}</pre>
-      </details>
-    </div>
+     
   </div>
 );
 }
