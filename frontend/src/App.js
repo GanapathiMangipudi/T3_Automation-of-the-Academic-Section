@@ -391,7 +391,7 @@ async function fetchCourseResponses(coursesList = null) {
       <Route path="/professor-login" element={<ProfessorLogin/>} />
 <Route path="/professor-dashboard" element={<ProfessorDashboard/>} />
 
-
+      <Route path="/assignments" element={<AssignmentUI/>} />  
 
     </Routes>
   );
