@@ -1,28 +1,41 @@
 import React, { useEffect, useState } from "react";
 
-/**
- * Assignments UI
- * - This file exports two components:
- *    1) default export -> AssignmentsPage (full-page view mounted at /assignments)
- *    2) named export -> AssignmentCompact (compact card to embed inside ProfessorDashboard)
- *
- * Styling: Tailwind CSS utility classes (no imports required for preview in canvas)
- * Behavior:
- *  - Shows a list of assignments with status, due date, and quick actions.
- *  - Compact view is small and meant to fit within the ProfessorDashboard column.
- *  - Full page supports pagination, create/edit drawer, and a detailed view when clicking "View".
- *  - All data is local/dummy by default but hooks are provided where API calls should be made.
- */
+// top of file
+async function apiFetch(path, { method = 'GET', body = null, headers = {}, signal } = {}) {
+  const token = window.localStorage.getItem('token') || window.localStorage.getItem('prof_token') || '';
+  const baseHeaders = { 'Content-Type': 'application/json', ...headers };
+  if (token) baseHeaders.Authorization = 'Bearer ' + token;
 
-// --- Utility helpers -----------------------------------------------------
+  const res = await fetch(path, {
+    method,
+    headers: baseHeaders,
+    body: body ? JSON.stringify(body) : undefined,
+    signal,
+  });
+
+  const contentType = res.headers.get('content-type') || '';
+  const data = contentType.includes('application/json')
+    ? await res.json().catch(() => ({}))
+    : await res.text().catch(() => ({}));
+
+  if (!res.ok) {
+    const err = new Error(data?.error || ('HTTP ' + res.status));
+    err.details = data;
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+
 const fmtDate = (iso) => new Date(iso).toLocaleString();
 
-// dummy data generator
+// dummy data generator (kept as original content)
 const sampleAssignments = () => [
   {
     id: 1,
-    title: "Assignment 1 — Linear Algebra",
-    course: "MA101",
+    title: "NAND and NOR gates",
+    course: "EE101",
     due_date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 3).toISOString(),
     published: true,
     description:
@@ -51,9 +64,30 @@ export function AssignmentCompact({ onOpenFull = () => {} }) {
   const [assignments, setAssignments] = useState([]);
 
   useEffect(() => {
-    // Replace with: fetch('/api/professors/assignments?limit=3')...
-    setAssignments(sampleAssignments().slice(0, 3));
-  }, []);
+  let mounted = true;
+  const ac = new AbortController();
+
+  async function load() {
+    try {
+      // try real API; adjust query params as needed
+const data = await apiFetch('http://localhost:4000/api/professors/assignments', { signal: ac.signal });
+      if (!mounted) return;
+      // if backend returns an array directly:
+      if (Array.isArray(data)) setAssignments(data);
+      // some APIs return { assignments: [...] }
+      else if (Array.isArray(data.assignments)) setAssignments(data.assignments);
+      else setAssignments(Array.isArray(data) ? data : sampleAssignments());
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      console.warn('Load assignments failed, using sample data', err);
+      if (mounted) setAssignments(sampleAssignments());
+    }
+  }
+
+  load();
+  return () => { mounted = false; ac.abort(); };
+}, []);
+
 
   return (
     <div className="bg-white rounded-2xl shadow-sm p-3 md:p-4">
@@ -103,7 +137,7 @@ export function AssignmentCompact({ onOpenFull = () => {} }) {
   );
 }
 
-// --- Full page /assignments ------------------------------------------------
+// --- Full page /assignments (default export) ------------------------------
 export default function AssignmentUI() {
   const [assignments, setAssignments] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -143,26 +177,73 @@ export default function AssignmentUI() {
     setShowCreate(true);
   }
 
-  function createOrUpdateAssignment(payload) {
-    // if payload contains id -> update, else create
-    if (payload.id) {
-      setAssignments((prev) => prev.map((a) => (a.id === payload.id ? { ...a, ...payload } : a)));
-      setSelected(payload);
-    } else {
-      const nextId = Math.max(0, ...assignments.map((a) => a.id)) + 1;
-      const newA = { id: nextId, ...payload };
-      setAssignments((prev) => [newA, ...prev]);
-      setSelected(newA);
+   // --- API helper: create assignment on backend (uses bearer token from localStorage) ---
+  async function createAssignment(payload) {
+  // use apiFetch so Authorization & JSON parsing logic is consistent
+  return await apiFetch('/api/professors/assignments', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+
+  // single create/update function that uses the API helper and updates local UI
+  async function createOrUpdateAssignment(payload) {
+    try {
+      // call the helper which returns parsed JSON or throws on non-OK
+      const data = await createAssignment(payload);
+
+      // If editing (payload.id exists), replace the item in list
+      if (payload.id) {
+        setAssignments((prev) => prev.map((a) => (a.id === payload.id ? { ...a, ...payload } : a)));
+      } else {
+        // add id returned by server if available
+        const newAssignment = {
+          ...payload,
+          id: data.assignment_id || Math.floor(Math.random() * 1e9), // fallback id for local display
+          published: !!payload.published,
+          due_date: payload.deadline || new Date().toISOString(),
+        };
+        setAssignments((prev) => [ newAssignment, ...prev ]);
+      }
+
+      setShowCreate(false);
+      setEditPayload(null);
+    } catch (err) {
+      console.error("Assignment creation failed", err);
+      const msg = err?.details?.error || err.message || 'Something went wrong';
+      alert("Error creating assignment: " + msg);
     }
-    setShowCreate(false);
-    setEditPayload(null);
-    // TODO: call POST or PATCH to backend accordingly
   }
 
+ 
   return (
-    <div className="min-h-screen p-4 md:p-8 bg-slate-50">
-      <div className="max-w-6xl mx-auto">
-        <header className="flex items-center justify-between mb-6">
+    <div className="container mt-4">
+      <div className="row">
+        <header className="flex items-center justify-between mt-4 w-full">
+          {/* Modal (visible when showCreate === true) */}
+          {showCreate && (
+            <>
+              <div className="modal d-block" tabIndex="-1" role="dialog" style={{ background: "rgba(0,0,0,0.35)" }}>
+                <div className="modal-dialog modal-lg modal-dialog-centered" role="document">
+                  <div className="modal-content">
+                    <div className="modal-header">
+                      <h5 className="modal-title">{editPayload ? "Edit Assignment" : "New Assignment"}</h5>
+                      <button type="button" className="btn-close" aria-label="Close" onClick={() => { setShowCreate(false); setEditPayload(null); }} />
+                    </div>
+                    <div className="modal-body">
+                      <CreateAssignmentForm
+                        initial={editPayload}
+                        onCancel={() => { setShowCreate(false); setEditPayload(null); }}
+                        onSave={(payload) => { createOrUpdateAssignment(payload); /* parent closes modal */ }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
           <div>
             <h1 className="text-2xl font-bold">Assignments</h1>
             <p className="text-sm text-slate-500">Create, publish and review assignments for your courses.</p>
@@ -177,198 +258,371 @@ export default function AssignmentUI() {
             />
             <button
               onClick={() => { setEditPayload(null); setShowCreate(true); }}
-              className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm shadow"
+              className="btn btn-primary"
             >
               + New
             </button>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* left: list */}
-          <div className="md:col-span-2">
-            <div className="bg-white rounded-2xl shadow-sm p-4">
-              <h3 className="text-sm font-semibold mb-3">All assignments</h3>
-
-              <ul className="divide-y">
-                {filtered.map((a) => (
-                  <li key={a.id} className="py-3 flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3">
-                        <div className="font-medium">{a.title}</div>
-                        <div className="text-xs text-slate-500">{a.course}</div>
-                        <div className="text-xs text-slate-500">• due {fmtDate(a.due_date)}</div>
+        {/* Left: Assignments List */}
+        <div className="col-md-8 mt-4">
+          <div className="card shadow-sm mb-4">
+            <div className="card-body">
+              <h4 className="card-title">All assignments</h4>
+              <ul className="list-unstyled">
+                {assignments.map((a) => {
+                  const status = a.published ? "Published" : "Draft";
+                  return (
+                    <li key={a.id} className="mb-3 pb-3 border-bottom">
+                      <div className="d-flex justify-content-between">
+                        <div>
+                          <h5 className="mb-1">{a.title}</h5>
+                          <small className="text-muted">{a.course}</small>
+                          <div className="text-muted small">
+                            • due {fmtDate(a.due_date)}
+                          </div>
+                          <p className="mt-2">{a.description}</p>
+                        </div>
+                        <div>
+                          <span
+                            className={`badge ${status === "Published" ? "bg-success" : "bg-secondary"}`}
+                          >
+                            {status}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-sm text-slate-700 mt-1">{a.description}</div>
-                    </div>
-
-                    <div className="ml-4 flex flex-col items-end gap-2">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setSelected(a)}
-                          className="text-xs px-3 py-1 rounded-md border hover:bg-slate-50"
-                        >
+                      <div className="mt-2">
+                        <button className="btn btn-sm btn-outline-primary me-2" onClick={() => setSelected(a)}>
                           Details
                         </button>
-                        <button
-                          onClick={() => openEdit(a)}
-                          className="text-xs px-3 py-1 rounded-md border hover:bg-slate-50"
-                        >
+                        <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => openEdit(a)}>
                           Edit
                         </button>
-                        <button
-                          onClick={() => togglePublish(a.id)}
-                          className="text-xs px-3 py-1 rounded-md border hover:bg-slate-50"
-                        >
-                          {a.published ? 'Unpublish' : 'Publish'}
-                        </button>
-                        <button
-                          onClick={() => removeAssignment(a.id)}
-                          className="text-xs px-3 py-1 rounded-md border text-red-600 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
+                        {a.published ? (
+                          <button className="btn btn-sm btn-warning me-2" onClick={() => togglePublish(a.id)}>Unpublish</button>
+                        ) : (
+                          <button className="btn btn-sm btn-success me-2" onClick={() => togglePublish(a.id)}>Publish</button>
+                        )}
+                        <button className="btn btn-sm btn-outline-danger" onClick={() => removeAssignment(a.id)}>Delete</button>
                       </div>
-                      <div className="text-xs text-slate-500">{a.published ? 'Published' : 'Draft'}</div>
-                    </div>
-                  </li>
-                ))}
-
-                {filtered.length === 0 && (
-                  <li className="py-6 text-center text-slate-500">No assignments found.</li>
-                )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
-
-            {/* pagination placeholder */}
-            <div className="mt-4 flex justify-end">
-              <div className="text-xs text-slate-500">Showing {filtered.length} items</div>
-            </div>
           </div>
-
-          {/* right: selected details */}
-          <aside className="hidden md:block">
-            <div className="sticky top-6 bg-white rounded-2xl shadow-sm p-4 w-72">
-              <h4 className="text-sm font-semibold mb-2">Details</h4>
-              {selected ? (
-                <div>
-                  <div className="font-medium">{selected.title}</div>
-                  <div className="text-xs text-slate-500">{selected.course} • due {fmtDate(selected.due_date)}</div>
-                  <p className="mt-3 text-sm text-slate-700">{selected.description}</p>
-
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => togglePublish(selected.id)}
-                      className="text-sm px-3 py-1 rounded-md border"
-                    >
-                      {selected.published ? 'Unpublish' : 'Publish'}
-                    </button>
-                    <button
-                      onClick={() => openEdit(selected)}
-                      className="text-sm px-3 py-1 rounded-md border"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => removeAssignment(selected.id)}
-                      className="text-sm px-3 py-1 rounded-md border text-red-600"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-slate-500">Select an assignment to see details</div>
-              )}
-
-              <hr className="my-3" />
-              <div className="text-xs text-slate-500">Quick actions</div>
-              <div className="mt-2 text-sm">
-                <button className="w-full text-left text-sm px-3 py-2 rounded-md border">Export submissions</button>
-                <button className="w-full text-left text-sm px-3 py-2 rounded-md border mt-2">View marks</button>
-              </div>
-            </div>
-          </aside>
         </div>
 
-        {/* Create drawer/modal (simple) */}
-        {showCreate && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/30" onClick={() => { setShowCreate(false); setEditPayload(null); }} />
-            <div className="bg-white rounded-2xl shadow p-6 w-full max-w-2xl z-50">
-              <CreateAssignmentForm
-                initial={editPayload}
-                onCancel={() => { setShowCreate(false); setEditPayload(null); }}
-                onSave={createOrUpdateAssignment}
-              />
+        {/* Right: Details panel */}
+        <div className="col-md-4 mt-4">
+          <div className="card shadow-sm">
+            <div className="card-body">
+              <h5 className="card-title">Details</h5>
+              <p className="text-muted small">Select an assignment to see details</p>
+              <hr />
+              <button className="btn btn-outline-primary w-100 mb-2">
+                Export submissions
+              </button>
+              <button className="btn btn-outline-secondary w-100">
+                View marks
+              </button>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
 }
+
 
 // --- CreateAssignmentForm (small) -----------------------------------------
 function CreateAssignmentForm({ onCancel, onSave, initial = null }) {
   const [title, setTitle] = useState(initial ? initial.title : "");
   const [course, setCourse] = useState(initial ? initial.course : "");
   const [desc, setDesc] = useState(initial ? initial.description : "");
-  const [due, setDue] = useState(initial ? new Date(initial.due_date).toISOString().slice(0,16) : "");
+  // keep input for datetime-local (slice(0,16))
+  const [due, setDue] = useState(initial ? (initial.due_date ? new Date(initial.due_date).toISOString().slice(0,16) : "") : "");
   const [published, setPublished] = useState(initial ? !!initial.published : false);
 
+  // questions: array of { id, text, options: [], correct: index, marks: number }
+  // Normalize incoming initial.questions into the UI shape if necessary
+  const normalizeInitialQuestions = (qs) => {
+    if (!Array.isArray(qs)) return [];
+    return qs.map((q, qi) => {
+      // possible shapes: { question_text, options: [{label, text, is_correct}], marks } OR { text, options: [ 'a','b' ], correct: idx }
+      let text = q.text ?? q.question_text ?? "";
+      let marks = q.marks ?? q.points ?? 1;
+      // transform options to simple string array for the UI inputs
+      let options = [];
+      let correct = 0;
+      if (Array.isArray(q.options) && q.options.length > 0) {
+        // options can be objects {label, text, is_correct} or strings
+        options = q.options.map((opt, oi) => {
+          if (typeof opt === "string") return opt;
+          if (opt && typeof opt === "object") return String(opt.text ?? opt.option_text ?? "");
+          return String(opt ?? "");
+        });
+        // determine correct index
+        const idxFromObjects = q.options.findIndex(opt => opt && (opt.is_correct || opt.isCorrect));
+        if (idxFromObjects >= 0) correct = idxFromObjects;
+        else if (typeof q.correct === "number") correct = q.correct;
+        else correct = 0;
+      } else {
+        // fallback: use q.options as empty or q.optionA, etc.
+        options = Array.isArray(q.options) ? q.options : (q.optionTexts ? q.optionTexts : []);
+      }
+
+      return {
+        id: q.id ?? `${Date.now()}_${qi}`,
+        text: String(text ?? ""),
+        options: options.length ? options : ["", ""],
+        correct: Number.isFinite(correct) ? correct : 0,
+        marks: Number(marks || 1),
+        position: q.position ?? (qi + 1),
+      };
+    });
+  };
+
+  const [questions, setQuestions] = useState(initial ? normalizeInitialQuestions(initial.questions || []) : []);
+
   useEffect(() => {
-    // keep form in sync if initial changes while open
     if (initial) {
       setTitle(initial.title || "");
       setCourse(initial.course || "");
       setDesc(initial.description || "");
       setDue(initial.due_date ? new Date(initial.due_date).toISOString().slice(0,16) : "");
       setPublished(!!initial.published);
+      setQuestions(normalizeInitialQuestions(initial.questions || []));
+    } else {
+      setQuestions([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial]);
 
-  function submit(e) {
+  function addQuestion() {
+    setQuestions(prev => [
+      ...prev,
+      { id: Date.now(), text: "", options: ["", ""], correct: 0, marks: 1 }
+    ]);
+  }
+
+  function removeQuestion(idx) {
+    setQuestions(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateQuestion(idx, patch) {
+    setQuestions(prev => prev.map((q, i) => (i === idx ? { ...q, ...patch } : q)));
+  }
+
+  function addOption(qIdx) {
+    setQuestions(prev => prev.map((q, i) => (i === qIdx ? { ...q, options: [...q.options, ""] } : q)));
+  }
+
+  function removeOption(qIdx, optIdx) {
+    setQuestions(prev => prev.map((q, i) => {
+      if (i !== qIdx) return q;
+      const newOpts = q.options.filter((_, oi) => oi !== optIdx);
+      const newCorrect = q.correct >= newOpts.length ? Math.max(0, newOpts.length - 1) : q.correct;
+      return { ...q, options: newOpts, correct: newCorrect };
+    }));
+  }
+
+  function updateOptionText(qIdx, optIdx, value) {
+    setQuestions(prev => prev.map((q, i) => {
+      if (i !== qIdx) return q;
+      const newOptions = q.options.map((o, oi) => (oi === optIdx ? value : o));
+      return { ...q, options: newOptions };
+    }));
+  }
+
+  function setCorrectOption(qIdx, optIdx) {
+    setQuestions(prev => prev.map((q, i) => (i === qIdx ? { ...q, correct: optIdx } : q)));
+  }
+
+  // ---------- Helper: build backend-friendly questions payload ----------
+  // This creates for each option an object { label: 'A'|'B'..., text, is_correct }
+  function buildQuestionsPayload(questionsLocal) {
+    return questionsLocal.map((q, qi) => {
+      const options = (q.options || []).map((opt, oi) => {
+        const label = String.fromCharCode(65 + oi); // A, B, C...
+        const text = typeof opt === "string" ? opt : (opt.text ?? String(opt));
+        // mark correct if the UI's correct index equals this option, or opt has is_correct
+        const is_correct = Number(q.correct ?? -1) === oi || !!(opt && opt.is_correct);
+        return {
+          label,
+          text: String(text ?? ""),
+          is_correct,
+        };
+      });
+
+      return {
+        position: typeof q.position === "number" ? q.position : (qi + 1),
+        question_text: String(q.text ?? q.question_text ?? ""),
+        options,
+        marks: Number(q.marks ?? 1),
+      };
+    });
+  }
+
+  // ---------- Unified submit handler (replaces duplicates) ----------
+  async function handleSubmit(e) {
     e.preventDefault();
+
+    // basic required fields
     if (!title || !course || !due) {
       alert('Please provide title, course and due date.');
       return;
     }
-    const payload = { title, course, description: desc, due_date: new Date(due).toISOString(), published };
-    if (initial && initial.id) payload.id = initial.id; // preserve id for edits
-    onSave(payload);
+
+    // local questions sanity
+    if (!Array.isArray(questions) || questions.length === 0) {
+      const ok = window.confirm('There are no questions. Save anyway?');
+      if (!ok) return;
+    }
+
+    // detect incomplete question (empty text / option)
+    const badQ = questions.find(q =>
+      !String(q.text ?? q.question_text ?? '').trim()
+      || !Array.isArray(q.options)
+      || q.options.length < 2
+      || q.options.some(opt => (typeof opt === 'string' ? !opt.trim() : !String(opt.text ?? '').trim()))
+    );
+
+    if (badQ) {
+      const ok = window.confirm('One or more questions look incomplete (empty text/options). Save anyway?');
+      if (!ok) return;
+    }
+
+    // build normalized payload for backend (labels A.., is_correct flags included)
+    const questionsPayload = buildQuestionsPayload(questions);
+
+    // detect missing correct answers
+    const missingCorrect = questionsPayload.some(q => !Array.isArray(q.options) || !q.options.some(o => !!o.is_correct));
+    if (missingCorrect) {
+      const ok = window.confirm('One or more questions have no correct option selected. Save anyway?');
+      if (!ok) return;
+    }
+
+    // final payload: map local names to backend-friendly keys
+    const payload = {
+      // backend expects course_id in many router implementations; include both to be safe
+      course_id: course,
+      course: course,
+      title,
+      description: desc ?? '',
+      // include both due_date and deadline (ISO) for robustness
+      due_date: new Date(due).toISOString(),
+      deadline: new Date(due).toISOString(),
+      published: !!published,
+      questions: questionsPayload,
+    };
+
+    // preserve id when editing
+    if (initial && initial.id) {
+      payload.id = initial.id;
+    }
+
+    try {
+      const result = onSave && onSave(payload);
+      if (result && typeof result.then === "function") {
+        await result;
+      }
+      // parent (AssignmentUI) will handle closing modal / updating list
+    } catch (err) {
+      console.error('save assignment error', err);
+      alert(err?.message || 'Failed to save assignment.');
+    }
   }
 
+  // ----- Render: UI unchanged, only form's onSubmit updated -----
   return (
-    <form onSubmit={submit} className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">{initial ? 'Edit Assignment' : 'New Assignment'}</h3>
-        <div className="text-sm text-slate-500">Fields marked * required</div>
+    <form onSubmit={handleSubmit}>
+      <div className="mb-3 row">
+        <div className="col-6">
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title *" className="form-control" />
+        </div>
+        <div className="col-6">
+          <input value={course} onChange={e => setCourse(e.target.value)} placeholder="Course code *" className="form-control" />
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title *" className="px-3 py-2 rounded-md border w-full" />
-        <input value={course} onChange={(e) => setCourse(e.target.value)} placeholder="Course code *" className="px-3 py-2 rounded-md border w-full" />
+      <div className="mb-3">
+        <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description" className="form-control" rows={4} />
       </div>
 
-      <div>
-        <textarea value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description" className="w-full rounded-md border p-3" rows={4} />
+      <div className="mb-3 row align-items-center">
+        <div className="col-md-6">
+          <input type="datetime-local" value={due} onChange={e => setDue(e.target.value)} className="form-control" />
+        </div>
+        <div className="col-md-6">
+          <div className="form-check">
+            <input className="form-check-input" type="checkbox" checked={published} onChange={e => setPublished(e.target.checked)} id="publishNow" />
+            <label className="form-check-label" htmlFor="publishNow">Publish immediately</label>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} className="px-3 py-2 rounded-md border w-full" />
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={published} onChange={(e) => setPublished(e.target.checked)} />
-          <span className="text-sm">Publish immediately</span>
-        </label>
+      {/* Questions panel (initial view + Add question) */}
+      <div className="mb-3 p-3 bg-light border rounded">
+        <div className="d-flex justify-content-between align-items-center mb-2">
+          <strong>Questions</strong>
+          <small className="text-muted">Multiple choice only (MCQ)</small>
+        </div>
+
+        {questions.length === 0 && (
+          <div className="mb-2 text-muted">No questions yet. Click "Add question" to start.</div>
+        )}
+
+        {questions.map((q, qi) => (
+          <div key={q.id} className="border rounded p-3 mb-3 bg-white">
+            <div className="d-flex justify-content-between">
+              <div className="flex-grow-1 me-3">
+                <input value={q.text} onChange={e => updateQuestion(qi, { text: e.target.value })} placeholder={`Question ${qi + 1} text`} className="form-control mb-2" />
+                {q.options.map((opt, oi) => (
+                  <div key={oi} className="flex items-center gap-2 mt-2">
+                    <input
+                      type="radio"
+                      name={`q_correct_${qi}`}
+                      checked={Number(q.correct ?? -1) === oi}
+                      onChange={() => setCorrectOption(qi, oi)}
+                    />
+                    <input
+                      value={opt}
+                      onChange={(e) => updateOptionText(qi, oi, e.target.value)}
+                      placeholder={`Option ${String.fromCharCode(65 + oi)}`}
+                      className="flex-1 px-3 py-2 rounded-md border"
+                    />
+                    <button type="button" onClick={() => removeOption(qi, oi)} className="px-2 py-1 rounded-md border text-sm">Remove</button>
+                  </div>
+                ))}
+
+                <div className="d-flex gap-2 mt-2">
+                  <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => addOption(qi)}>Add option</button>
+                  <div className="input-group input-group-sm" style={{ width: 120 }}>
+                    <span className="input-group-text">Marks</span>
+                    <input type="number" min="1" value={q.marks} onChange={e => updateQuestion(qi, { marks: Number(e.target.value || 1) })} className="form-control" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-end">
+                <div className="text-muted mb-2">Q {qi + 1}</div>
+                <button type="button" className="btn btn-sm btn-danger" onClick={() => removeQuestion(qi)}>Delete</button>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        <div>
+          <button type="button" className="btn btn-sm btn-dark" onClick={addQuestion}>Add question</button>
+        </div>
       </div>
 
-      <div className="flex items-center justify-end gap-2">
-        <button type="button" onClick={onCancel} className="px-4 py-2 rounded-md border">Cancel</button>
-        <button type="submit" className="px-4 py-2 rounded-md bg-slate-900 text-white">{initial ? 'Save changes' : 'Create'}</button>
+      <div className="d-flex justify-content-end gap-2">
+        <button type="button" className="btn btn-outline-secondary" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="btn btn-primary">Create</button>
       </div>
     </form>
   );
 }
-
-
