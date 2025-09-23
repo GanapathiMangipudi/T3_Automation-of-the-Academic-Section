@@ -129,7 +129,7 @@ CREATE TABLE attendance (
 
 CREATE TABLE assignments (
   assignment_id INT AUTO_INCREMENT PRIMARY KEY,
-  course_id INT NOT NULL,
+  course_id VARCHAR(255) NOT NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT,
   created_by VARCHAR(100) NULL,                 -- must be NULLABLE if ON DELETE SET NULL
@@ -141,7 +141,6 @@ CREATE TABLE assignments (
     ON UPDATE CASCADE
     ON DELETE SET NULL
 ) ENGINE=InnoDB;
-
 
 CREATE TABLE assignment_questions (
   question_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -212,3 +211,4 @@ ON DUPLICATE KEY UPDATE
   schedule = VALUES(schedule);
 
 -- assignments and supporting tables
+
