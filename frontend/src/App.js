@@ -12,6 +12,8 @@ import StudentDashboard from "./components/StudentDashboard";
 import ProfessorLogin from './components/ProfessorLogin';
 import ProfessorDashboard from './components/ProfessorDashboard'; 
 import AssignmentUI from "./components/AssignmentUI";
+import ViewAssignments from "./components/ViewAssignments";
+import AssignmentForm from "./components/AssignmentForm";
 
 // Base URLs
 // For /api/* routes
@@ -391,7 +393,18 @@ async function fetchCourseResponses(coursesList = null) {
       <Route path="/professor-login" element={<ProfessorLogin/>} />
 <Route path="/professor-dashboard" element={<ProfessorDashboard/>} />
 
-      <Route path="/assignments" element={<AssignmentUI/>} />  
+     
+        <Route path="/assignments" element={<AssignmentUI/>} />  
+ 
+      
+        <Route path="/" element={<StudentDashboard />} />
+        <Route path="/assignments" element={<ViewAssignments />} />
+
+
+        <Route path="/professor/assignments" element={<ProfessorDashboard />} />
+        <Route path="/professor/assignments/create" element={<AssignmentForm />} />
+        <Route path="/professor/assignments/:id/edit" element={<AssignmentForm />} />
+
 
     </Routes>
   );
