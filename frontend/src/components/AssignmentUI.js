@@ -114,7 +114,7 @@ const data = await apiFetch('http://localhost:4000/api/professors/assignments', 
           >
             <div>
               <div className="text-sm font-medium">{a.title}</div>
-              <div className="text-xs text-slate-500">{a.course} • due {fmtDate(a.due_date)}</div>
+              <div className="text-xs text-slate-500">{a.course} • due {fmtDate(a.deadline)}</div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -172,10 +172,27 @@ export default function AssignmentUI() {
     // TODO: call DELETE /api/professors/assignments/:id
   }
 
-  function openEdit(a) {
-    setEditPayload(a);
+async function openEdit(a) {
+  try {
+    const id = a.id || a.assignment_id;
+    const res = await apiFetch(`/api/assignments/${id}`);
+    const assignment = res.data || res;
+
+
+
+    console.log('DEBUG openEdit - assignment:', assignment);
+
+    setEditPayload(assignment);
     setShowCreate(true);
+  } catch (err) {
+    console.error('Failed to load assignment for edit', err);
+    alert('Failed to load assignment details for edit.');
   }
+}
+
+
+
+
 
    // --- API helper: create assignment on backend (uses bearer token from localStorage) ---
   async function createAssignment(payload) {
@@ -186,35 +203,66 @@ export default function AssignmentUI() {
   });
 }
 
+// helper: update existing assignment via PUT
+async function updateAssignment(id, body) {
+  return await apiFetch(`/api/professors/assignments/${id}`, {
+    method: 'PUT',
+    body,
+  });
+}
 
-  // single create/update function that uses the API helper and updates local UI
-  async function createOrUpdateAssignment(payload) {
-    try {
-      // call the helper which returns parsed JSON or throws on non-OK
-      const data = await createAssignment(payload);
+// unified create / update
+async function createOrUpdateAssignment(payload) {
+  try {
+    if (payload.id) {
+      // Editing: call PUT
+      await updateAssignment(payload.id, payload);
 
-      // If editing (payload.id exists), replace the item in list
-      if (payload.id) {
-        setAssignments((prev) => prev.map((a) => (a.id === payload.id ? { ...a, ...payload } : a)));
-      } else {
-        // add id returned by server if available
-        const newAssignment = {
-          ...payload,
-          id: data.assignment_id || Math.floor(Math.random() * 1e9), // fallback id for local display
-          published: !!payload.published,
-          due_date: payload.deadline || new Date().toISOString(),
-        };
-        setAssignments((prev) => [ newAssignment, ...prev ]);
+      // Refetch canonical assignment from server so we have server-generated IDs & exact shape
+      let serverAssignment;
+      try {
+        const res = await apiFetch(`/api/assignments/${payload.id}`);
+        serverAssignment = res.data || res; // tolerate { data: {...} } or bare object
+      } catch (fetchErr) {
+        console.warn('Refetch after update failed — falling back to local payload', fetchErr);
+        serverAssignment = { ...payload };
       }
 
-      setShowCreate(false);
-      setEditPayload(null);
-    } catch (err) {
-      console.error("Assignment creation failed", err);
-      const msg = err?.details?.error || err.message || 'Something went wrong';
-      alert("Error creating assignment: " + msg);
+      // normalize keys for UI
+serverAssignment.course = serverAssignment.course || serverAssignment.course_id || "";
+serverAssignment.due_date = serverAssignment.due_date || serverAssignment.deadline || "";
+
+
+setAssignments(prev =>
+  prev.map(a => (a.id === payload.id ? { ...a, ...serverAssignment } : a))
+);
+
+     
+    } else {
+      // Creating: call POST helper you already have
+      const data = await createAssignment(payload);
+
+      const newAssignment = {
+        ...payload,
+        id: data.assignment_id || data.id || Math.floor(Math.random() * 1e9),
+        published: !!payload.published,
+        due_date: payload.deadline || new Date().toISOString(),
+      };
+      setAssignments(prev => [newAssignment, ...prev]);
     }
+
+    // Close modal & clear edit state
+    setShowCreate(false);
+    setEditPayload(null);
+  } catch (err) {
+    console.error('Assignment save failed', err);
+    const msg = err?.details?.error || err.message || 'Something went wrong';
+    alert('Error saving assignment: ' + msg);
   }
+}
+
+
+
 
  
   return (
@@ -338,12 +386,18 @@ export default function AssignmentUI() {
 
 // --- CreateAssignmentForm (small) -----------------------------------------
 function CreateAssignmentForm({ onCancel, onSave, initial = null }) {
-  const [title, setTitle] = useState(initial ? initial.title : "");
-  const [course, setCourse] = useState(initial ? initial.course : "");
-  const [desc, setDesc] = useState(initial ? initial.description : "");
+  
+ 
   // keep input for datetime-local (slice(0,16))
-  const [due, setDue] = useState(initial ? (initial.due_date ? new Date(initial.due_date).toISOString().slice(0,16) : "") : "");
+  const [title, setTitle] = useState(initial?.title || "");
+const [course, setCourse] = useState(initial?.course_id || "");
+const [desc, setDesc] = useState(initial?.description || "");
+const [deadline, setDeadline] = useState(initial ? (initial.deadline ? new Date(initial.deadline).toISOString().slice(0,16) : "") : "");
   const [published, setPublished] = useState(initial ? !!initial.published : false);
+
+
+
+
 
   // questions: array of { id, text, options: [], correct: index, marks: number }
   // Normalize incoming initial.questions into the UI shape if necessary
@@ -387,11 +441,12 @@ function CreateAssignmentForm({ onCancel, onSave, initial = null }) {
   const [questions, setQuestions] = useState(initial ? normalizeInitialQuestions(initial.questions || []) : []);
 
   useEffect(() => {
+     console.log("DEBUG initial payload to form:", initial);
     if (initial) {
       setTitle(initial.title || "");
-      setCourse(initial.course || "");
+      setCourse(initial.course_id || "");
       setDesc(initial.description || "");
-      setDue(initial.due_date ? new Date(initial.due_date).toISOString().slice(0,16) : "");
+      setDeadline(initial.deadline ? new Date(initial.deadline).toISOString().slice(0,16) : "");
       setPublished(!!initial.published);
       setQuestions(normalizeInitialQuestions(initial.questions || []));
     } else {
@@ -470,7 +525,7 @@ function CreateAssignmentForm({ onCancel, onSave, initial = null }) {
     e.preventDefault();
 
     // basic required fields
-    if (!title || !course || !due) {
+    if (!title || !course || !deadline) {
       alert('Please provide title, course and due date.');
       return;
     }
@@ -506,19 +561,16 @@ function CreateAssignmentForm({ onCancel, onSave, initial = null }) {
 
     // final payload: map local names to backend-friendly keys
     const payload = {
-      // backend expects course_id in many router implementations; include both to be safe
       course_id: course,
-      course: course,
       title,
       description: desc ?? '',
       // include both due_date and deadline (ISO) for robustness
-      due_date: new Date(due).toISOString(),
-      deadline: new Date(due).toISOString(),
+     
+      deadline: new Date(deadline).toISOString(),
       published: !!published,
       questions: questionsPayload,
     };
 
-    // preserve id when editing
     if (initial && initial.id) {
       payload.id = initial.id;
     }
@@ -553,7 +605,7 @@ function CreateAssignmentForm({ onCancel, onSave, initial = null }) {
 
       <div className="mb-3 row align-items-center">
         <div className="col-md-6">
-          <input type="datetime-local" value={due} onChange={e => setDue(e.target.value)} className="form-control" />
+<input type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} className="form-control" />
         </div>
         <div className="col-md-6">
           <div className="form-check">
