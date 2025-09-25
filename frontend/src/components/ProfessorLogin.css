@@ -1,0 +1,78 @@
+/* ProfessorLogin.css */
+
+.login-wrapper {
+  max-width: 400px;
+  margin: 60px auto;
+  padding: 20px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  color: #222;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.login-wrapper h2 {
+  margin: 0 0 16px;
+  font-size: 1.4rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.login-form label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #333;
+}
+
+.login-form input {
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  background-color: #f8faff;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.login-form input:focus {
+  border-color: #007bff;
+  background: #fff;
+  outline: none;
+}
+
+.login-form button {
+  width: 100%;
+  padding: 10px 14px;
+  background: #007bff;
+  border: 1px solid rgba(0,0,0,0.08);
+  color: #fff;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.login-form button:hover {
+  background: #005ec3;
+}
+
+.login-links {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.login-links a {
+  font-size: 0.9rem;
+  color: #007bff;
+  text-decoration: none;
+}
+
+.login-links a:hover {
+  text-decoration: underline;
+}
