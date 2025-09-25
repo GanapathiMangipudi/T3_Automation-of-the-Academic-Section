@@ -1,7 +1,7 @@
 // src/components/ProfessorLogin.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
+import "./ProfessorLogin.css";
 const API_ROOT = process.env.REACT_APP_API || 'http://localhost:4000';
 
 export default function ProfessorLogin() {
@@ -54,9 +54,9 @@ export default function ProfessorLogin() {
   }
 
 return (
-    <div style={{ maxWidth: 520, margin: 20 }}>
+    <div className="login-wrapper" style={{ maxWidth: 520, margin: 20 }}>
       <h2>Professor Login</h2>
-      <form onSubmit={handleLogin}>
+      <form className="login-form" onSubmit={handleLogin}>
         <div>
           <label>Username</label><br/>
           <input
